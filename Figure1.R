@@ -18,6 +18,31 @@ Tissue_color_panel = c(
   "Other tissue" = "#FDE74C"
 )
 
+Cancer_color_panel <- c(
+  AML = "#5A7B8F",
+  BCC = "#EE4C97",
+  BRCA = "#3D806F",
+  CRC = "#A08634",
+  CTCL = "#F37C95",
+  ESCA = "#608541",
+  FTC = "#7D4E57",
+  HCC = "#BC3C29",
+  HNSCC = "#958056",
+  ICC = "#9FAFA3",
+  MB = "#6F99AD",
+  MELA = "#0072B5",
+  NPC = "#CFC59A",
+  NSCLC = "#E18727",
+  OV = "#FFDC91",
+  PACA = "#718DAE",
+  RC = "#7876B1",
+  STAD = "#F9AC93",
+  THCA = "#3E6086",
+  UCEC = "#20854E",
+  UM = "#7581AF",
+  cSCC = "#4A7985"
+)
+
 ## IV. load code
 
 
@@ -174,4 +199,97 @@ ggsave(
 )
 
 
-## Figure S1B
+## Figure S1B; staining panels heatmap
+library(ComplexHeatmap)
+
+m = IHC_info[,c(5:10)]
+m[is.na(m)] = 0
+m = t(m)
+
+ha = HeatmapAnnotation(
+  Cancer = IHC_info$`Cancer type`,
+  Tissue = IHC_info$Tissue,
+  annotation_name_gp = grid::gpar(fontsize = 6),
+  col = list(
+    Cancer = Cancer_color_panel,
+    Tissue = c("Tumor" = "#5BC0EB", "Adjacent non-tumor tissue" = "#9BC53D")
+  ),
+  gp = gpar(col = "white", lwd = 0.5)
+)
+
+colors = c("0" = "#d1d3d4", "1" = "#fbb040")
+
+pdf(
+  paste0(fdir,"FigureS1B.pdf"),
+  width = 6,
+  height = 3
+)
+
+ComplexHeatmap::Heatmap(
+  m,
+  col = colors,
+  top_annotation = ha,
+  cluster_rows = F,
+  column_split  = IHC_info$`Cancer type` ,
+  row_split = c(rep("IHC", 2), rep("mIHC", 4)),
+  cluster_columns = F,
+  column_names_gp = grid::gpar(fontsize = 5),
+  row_names_gp = grid::gpar(fontsize = 5),
+  column_title_gp =  grid::gpar(fontsize = 5),
+  row_title_gp =  grid::gpar(fontsize = 5),
+  width = ncol(m) * unit(0.03, "inch"),
+  height = nrow(m) * unit(0.16, "inch"),
+  rect_gp = gpar(col = "white", lwd = 0.5),
+)
+
+dev.off()
+
+#----- 02. batch correction and annotation -----# 
+## Figure S1C; UMAP - The distribution of datasets in the integrated B cell atlas
+
+# batchID color
+color = sample(get_palette(palette = c(get_palette("npg", 8),get_palette("Dark2", 8)),k = 54), 54)
+color = read_rds("batchID_color.rds")
+
+ggplot(meta, aes(x = UMAP1, y = UMAP2, color = batchID)) +
+  geom_point(size = 0.03,
+             shape = 16,
+             stroke = 0) +
+  theme_void()+
+  scale_color_manual(values = color, name = '')+
+  theme(aspect.ratio = 1,
+        legend.position = "none")
+
+ggsave(
+  paste0(fdir, "FigureS1C.png"),
+  width = 2,
+  height = 2,
+  dpi = 300
+)
+
+ggplot(meta, aes(x = UMAP1, y = UMAP2, color = batchID)) +
+  geom_point(size = 0,
+             shape = 16,
+             stroke = 0) +
+  theme_void()+
+  scale_color_manual(values = color, name = '') +
+  theme(
+    aspect.ratio = 1,
+    legend.position = 'bottom',
+    plot.margin = margin(0,0,0,0)
+  ) +
+  guides(color = guide_legend(
+    ncol = 2,
+    override.aes = list(size = 2, alpha = 1)
+  )) +
+  theme(legend.text = element_text(size = 5),
+        legend.spacing.y = unit(0, 'cm'),
+        legend.key.height = unit(0,"cm"),
+        legend.box.spacing = unit(0, 'cm'))
+
+ggsave(
+  paste0(fdir, "FigureS1C_legend.pdf"),
+  width = 3.5,
+  height = 6,
+  dpi = 500
+)
