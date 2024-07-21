@@ -1,7 +1,6 @@
 # Figure2.R
 
 fdir = ""
-
 ## load packages
 library(readr)
 library(dplyr)
@@ -66,52 +65,56 @@ Subset_color_panel <- c(
   "c15_cycling_ASC" = "#D36135",
   "c14_Bm_activated-cycling" = "#467599"
 )
-##--- Figure 2A; Proportions of TIBs in CD45+ cells across cancer types. One-way ANOVA
-all_meta = read_rds("all_meta_0707.rds")
 
-CD45_meta = all_meta %>%
-  filter(
-    majortype %in% c("B", "Myeloid", "T&NK"),
-    `Isolated_or_sorted_cell_population` %in% c(
-      "CD45+",
-      "CD45+/CD45-(1:1 mix)",
-      "CD45+/CD45-(3:1 mix)",
-      "CD45+&EPCAM-",
-      "EPCAM-",
-      "None",
-      "None, CD45+"
+#----- 01. Proportions of B cells in CD45+ cells -----#
+if(TRUE){
+  all_meta = read_rds("all_meta_0707.rds")
+  
+  CD45_meta = all_meta %>%
+    filter(
+      majortype %in% c("B", "Myeloid", "T&NK"),
+      `Isolated_or_sorted_cell_population` %in% c(
+        "CD45+",
+        "CD45+/CD45-(1:1 mix)",
+        "CD45+/CD45-(3:1 mix)",
+        "CD45+&EPCAM-",
+        "EPCAM-",
+        "None",
+        "None, CD45+"
+      )
     )
-  )
-
-df.sample_count = CD45_meta %>% 
-  group_by(SampleID,PatientID,Cancer,Tissue_short,Sample_type,Treatment_status) %>% 
-  summarise(CD45_n=n())
-
-for(i in sort(unique(CD45_meta$majortype))){
   
-  tmp = CD45_meta %>% 
-    filter(majortype == i) %>% 
-    group_by(SampleID) %>% 
-    summarise(n = n())
+  df.sample_count = CD45_meta %>% 
+    group_by(SampleID,PatientID,Cancer,Tissue_short,Sample_type,Treatment_status) %>% 
+    summarise(CD45_n=n())
   
-  tmp[is.na(tmp)] = 0
+  for(i in sort(unique(CD45_meta$majortype))){
+    
+    tmp = CD45_meta %>% 
+      filter(majortype == i) %>% 
+      group_by(SampleID) %>% 
+      summarise(n = n())
+    
+    tmp[is.na(tmp)] = 0
+    
+    df.sample_count = left_join(df.sample_count,tmp)
+    df.sample_count[is.na(df.sample_count)] = 0
+    
+    df.sample_count$percent = 
+      round(df.sample_count$n/df.sample_count$CD45_n * 100,2)
+    
+    i_names = paste0(i,"_n")    
+    colnames(df.sample_count)[length(df.sample_count)-1] = i_names        
+    
+    i_names = paste0(i,"_percent")
+    colnames(df.sample_count)[length(df.sample_count)] = i_names    
+    
+  }
   
-  df.sample_count = left_join(df.sample_count,tmp)
-  df.sample_count[is.na(df.sample_count)] = 0
-  
-  df.sample_count$percent = 
-    round(df.sample_count$n/df.sample_count$CD45_n * 100,2)
-  
-  i_names = paste0(i,"_n")    
-  colnames(df.sample_count)[length(df.sample_count)-1] = i_names        
-  
-  i_names = paste0(i,"_percent")
-  colnames(df.sample_count)[length(df.sample_count)] = i_names    
-  
+  df.sample_count_flt = df.sample_count %>% filter(CD45_n > 100, Treatment_status == "treatment naïve")
 }
 
-df.sample_count_flt = df.sample_count %>% filter(CD45_n > 100, Treatment_status == "treatment naïve")
-
+##--- Figure 2A; Proportions of TIBs in CD45+ cells across cancer types. One-way ANOVA
 # Define parameters
 i <- "B"
 tissue <- "T"
@@ -298,38 +301,136 @@ ggsave(
 )
 
 ##--- Figure 2C; Upset plot showing the infiltraion status of three major immune components within tumors.
+################## ------------------ Figure 2C ------------------ ##################
+# 1. library
+library(readr)
+library(tidyverse)
+library(Seurat)
+
+# 2. params
+dir_for_meta_all <- "all_meta_0707.rds"
+
+# 3. load data
+meta_all <- read_rds(dir_for_meta_all)
+
+# 4. select samples
+keep_sample <- meta_all %>%
+  dplyr::filter(
+    Tissue_short == "T",
+    Treatment_status == "treatment naïve",
+    Isolated_or_sorted_cell_population %in% c(
+      "CD45+",
+      "CD45+/CD45-(1:1 mix)",
+      "CD45+/CD45-(3:1 mix)",
+      "CD45+&EPCAM-",
+      "EPCAM-",
+      "None",
+      "None, CD45+"
+    )
+  ) %>%
+  group_by(SampleID) %>%
+  summarise(n = n()) %>%
+  dplyr::filter(n >= 100)
+
+meta_subset <- meta_all %>%
+  dplyr::filter(SampleID %in% keep_sample$SampleID)
+
+# 5. infiltration status of three immune components
+n_cutoff <- 20 # >= 20 cells, yes; < 20 cells, no
+
+immune_count <- meta_subset %>%
+  group_by(Cancer, SampleID) %>%
+  summarise(
+    B = sum(majortype == "B"),
+    T_NK = sum(majortype == "T&NK"),
+    myeloid = sum(majortype == "Myeloid"),
+    n = n()
+  ) %>%
+  mutate(
+    have_B = B >= n_cutoff,
+    have_T = T_NK >= n_cutoff,
+    have_myeloid = myeloid >= n_cutoff
+  )
+
+plot_df <- as.tibble(immune_count)
+
+tmp_list <- lapply(1:nrow(plot_df), function(x) {
+  ret <- c()
+  if (plot_df$have_B[x]) {
+    ret <- c(ret, "B")
+  }
+  if (plot_df$have_T[x]) {
+    ret <- c(ret, "T")
+  }
+  if (plot_df$have_myeloid[x]) {
+    ret <- c(ret, "Myeloid")
+  }
+  return(ret)
+})
+
+plot_df$category <- I(tmp_list)
+plot_df <- plot_df %>% dplyr::select(Cancer, category)
+
+# 6. plot
+## add one dummy "only have B" (for plot convenience, remove later)
+plot_df <- rbind(plot_df, c("Dummy", c("B")))
+
+p <- ggplot(plot_df, aes(x = category)) +
+  geom_bar(fill = "#BF504D", width = 0.8) +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5, size = 0.35 * 7) +
+  ggupset::scale_x_upset(reverse = FALSE) +
+  cowplot::theme_cowplot() +
+  theme(
+    axis.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 7),
+    text = element_text(size = 7, family = "ArialMT"),
+    plot.margin = unit(c(1, 1, 1, 1), "char"),
+    plot.title = element_text(hjust = 0.5, size = 8),
+    axis.line = element_line(linetype = 1, color = "black", size = 0.3),
+    axis.ticks = element_line(linetype = 1, color = "black", size = 0.3)
+  ) +
+  xlab("Infiltration status of immune components") +
+  ylab("Number of samples")
+
+ggsave(
+  plot = p,
+  file.path(fdir, "2C.infiltration_status_upset.pdf"),
+  width = 3.8,
+  height = 2.5
+)
+
+#----- 02.  major type abundance data frame -----#
+if(TRUE){
+  df.sample_count <- meta %>%
+    group_by(SampleID, PatientID, Cancer, Tissue, Treatment_status) %>%
+    summarise(B_n = n(), .groups = 'drop')
+  
+  for (i in sort(unique(meta$Annotation_major_2))) {
+    tmp = meta %>%
+      filter(Annotation_major_2 == i) %>%
+      group_by(SampleID) %>%
+      summarise(n = n())
+    
+    tmp[is.na(tmp)] = 0
+    
+    df.sample_count = left_join(df.sample_count, tmp, by = "SampleID")
+    df.sample_count[is.na(df.sample_count)] = 0
+    
+    df.sample_count$percent =
+      round(df.sample_count$n / df.sample_count$B_n * 100, 2)
+    
+    i_names = paste0(i, "_n")
+    colnames(df.sample_count)[length(df.sample_count) - 1] = i_names
+    
+    i_names = paste0(i, "_percent")
+    colnames(df.sample_count)[length(df.sample_count)] = i_names
+  }
+  
+  df.sample_count_flt = df.sample_count %>% filter(B_n > 50, Treatment_status == "treatment naïve")
+}
 
 
 ##--- Figure 2D; TIB major lineage compositions across cancer types; only samples with B > 50 are shown; one-way ANOVA test
-### major type abundance data frame
-df.sample_count <- meta %>%
-  group_by(SampleID, PatientID, Cancer, Tissue, Treatment_status) %>%
-  summarise(B_n = n(), .groups = 'drop')
-
-for (i in sort(unique(meta$Annotation_major_2))) {
-  tmp = meta %>%
-    filter(Annotation_major_2 == i) %>%
-    group_by(SampleID) %>%
-    summarise(n = n())
-  
-  tmp[is.na(tmp)] = 0
-  
-  df.sample_count = left_join(df.sample_count, tmp, by = "SampleID")
-  df.sample_count[is.na(df.sample_count)] = 0
-  
-  df.sample_count$percent =
-    round(df.sample_count$n / df.sample_count$B_n * 100, 2)
-  
-  i_names = paste0(i, "_n")
-  colnames(df.sample_count)[length(df.sample_count) - 1] = i_names
-  
-  i_names = paste0(i, "_percent")
-  colnames(df.sample_count)[length(df.sample_count)] = i_names
-}
-
-df.sample_count_flt = df.sample_count %>% filter(B_n > 50, Treatment_status == "treatment naïve")
-
-### plot code
 psum = list()
 
 for (i in sort(unique(meta$Annotation_major_2))) {
@@ -383,7 +484,7 @@ psum[[1]] + psum[[2]] + psum[[3]] + psum[[4]] + plot_layout(ncol = 1)
 ggsave(paste0(fdir,"Figure2D.pdf"),
        width = 4,height = 7.5)
 
-##--- Figure S2F
+##--- Figure S3F; B cell major lineage compositions in ANTs across cancer types. 
 psum = list()
 
 for (i in sort(unique(meta$Annotation_major_2))) {
@@ -392,7 +493,7 @@ for (i in sort(unique(meta$Annotation_major_2))) {
   tmp = df.sample_count_flt[, c("SampleID", "Cancer", "Tissue", eval(i_names))]
   colnames(tmp)[length(tmp)] = "percent"
   
-  tissue = "Adjacent non-tumor tissue"
+  tissue = "Adjacent non-tumor"
   
   tmp2 = tmp %>% filter(Tissue %in% tissue)
   
